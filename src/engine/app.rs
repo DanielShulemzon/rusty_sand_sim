@@ -39,14 +39,14 @@ use vulkano::{
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalPosition, PhysicalSize},
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowId},
 };
 
 use super::{
     shaders::{cs, fs, vs},
-    DynMemoryManager, MyVertex, RenderContext,
+    DynMemoryManager, MouseState, MyVertex, RenderContext,
 };
 
 // const PARTICLE_COUNT: usize = 819_200;
@@ -277,6 +277,7 @@ impl ApplicationHandler for App {
             start_time,
             last_frame_time: start_time,
             cursor_pos: PhysicalPosition::new(0.0, 0.0),
+            mouse_state: MouseState::new(),
         });
     }
 
@@ -300,16 +301,8 @@ impl ApplicationHandler for App {
                 rcx.cursor_pos.x = 2.0 * (position.x / window_size.width as f64) - 1.0;
                 rcx.cursor_pos.y = 2.0 * (position.y / window_size.height as f64) - 1.0;
             }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => {
-                self.vertex_memory_mng.add_pixels(1);
-                println!(
-                    "current amont is obviously: {}",
-                    self.vertex_memory_mng.size()
-                );
+            WindowEvent::MouseInput { .. } => {
+                rcx.mouse_state.handle_event(&event);
             }
             WindowEvent::RedrawRequested => {
                 let window_size = rcx.window.inner_size();
@@ -350,15 +343,13 @@ impl ApplicationHandler for App {
                     .as_secs_f32();
                 rcx.last_frame_time = now;
 
-                self.vertex_memory_mng.add_pixels(1);
-                println!("what? {}", self.vertex_memory_mng.size());
+                if rcx.mouse_state.is_held(MouseButton::Left) {
+                    self.vertex_memory_mng.add_pixels(1, rcx.cursor_pos);
+                    println!("what? {}", self.vertex_memory_mng.size());
+                }
 
                 // Create push constants to be passed to compute shader.
-                let push_constants = cs::PushConstants {
-                    attractor: rcx.cursor_pos.into(),
-                    attractor_strength: 1.2 * (2. * time).cos(),
-                    delta_time,
-                };
+                let push_constants = cs::PushConstants { delta_time };
 
                 // Acquire information on the next swapchain target.
                 let (image_index, suboptimal, acquire_future) = match acquire_next_image(

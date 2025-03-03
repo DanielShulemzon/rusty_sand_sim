@@ -15,6 +15,7 @@ use vulkano::{
     sync::GpuFuture,
     DeviceSize,
 };
+use winit::dpi::PhysicalPosition;
 
 use super::MyVertex;
 
@@ -90,7 +91,7 @@ impl DynMemoryManager {
         self.size
     }
 
-    pub fn add_pixels(&mut self, num_pixels: u32) {
+    pub fn add_pixels(&mut self, num_pixels: u32, pos: PhysicalPosition<f64>) {
         if self.size + num_pixels > self.capacity {
             self.recreate_buffer(std::cmp::max(self.capacity * 2, self.size + num_pixels));
         }
@@ -113,7 +114,7 @@ impl DynMemoryManager {
             let mut mapping = staging_buffer.write().unwrap();
             for vertex in mapping.iter_mut() {
                 *vertex = MyVertex {
-                    pos: [0.0, 0.0],
+                    pos: pos.into(),
                     vel: [0.0, 0.0],
                 };
             }

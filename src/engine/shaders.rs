@@ -67,56 +67,56 @@ pub mod cs {
                 VertexData vertices[];
             };
 
-            // Allow push constants to define a parameters of compute.
+            // Allow push constants to define parameters of compute.
             layout (push_constant) uniform PushConstants {
-                vec2 attractor;
-                float attractor_strength;
                 float delta_time;
             } push;
 
-            // Keep this value in sync with the `maxSpeed` const in the vertex shader.
             const float maxSpeed = 10.0;
-
-            const float minLength = 0.02;
             const float friction = -2.0;
+            const float gravity = 9.8; // Constant gravity force downwards
+            const float ground_damping = 0.7; // Controls how much speed is lost on hitting the ground
 
             void main() {
                 const uint index = gl_GlobalInvocationID.x;
 
                 vec2 vel = vertices[index].vel;
 
-                // Update particle position according to velocity.
+                // Update velocity with gravity (pulling downwards)
+                vel.y += push.delta_time * gravity;
+
+                // Update position
                 vec2 pos = vertices[index].pos + push.delta_time * vel;
 
-                // Bounce particle off screen-border.
+                // Bounce particle off screen borders.
                 if (abs(pos.x) > 1.0) {
                     vel.x = sign(pos.x) * (-0.95 * abs(vel.x) - 0.0001);
-                    if (abs(pos.x) >= 1.05) {
-                        pos.x = sign(pos.x);
-                    }
-                }
-                if (abs(pos.y) > 1.0) {
-                    vel.y = sign(pos.y) * (-0.95 * abs(vel.y) - 0.0001);
-                    if (abs(pos.y) >= 1.05) {
-                        pos.y = sign(pos.y);
-                    }
+                    pos.x = clamp(pos.x, -1.0, 1.0);
                 }
 
-                // Simple inverse-square force.
-                vec2 t = push.attractor - pos;
-                float r = max(length(t), minLength);
-                vec2 force = push.attractor_strength * (t / r) / (r * r);
+                if (pos.y < -1.0) {
+                    // Hitting the ground: dampen vertical velocity
+                    vel.y *= -ground_damping;
+                    pos.y = -1.0;
+                } else if (pos.y > 1.0) {
+                    // Top border: prevent escape
+                    vel.y = -0.95 * abs(vel.y);
+                    pos.y = 1.0;
+                }
 
-                // Update velocity, enforcing a maximum speed.
-                vel += push.delta_time * force;
+                // Apply friction
+                vel *= exp(friction * push.delta_time);
+
+                // Enforce max speed
                 if (length(vel) > maxSpeed) {
-                    vel = maxSpeed*normalize(vel);
+                    vel = maxSpeed * normalize(vel);
                 }
 
-                // Set new values back into buffer.
+                // Store updated values
                 vertices[index].pos = pos;
-                vertices[index].vel = vel * exp(friction * push.delta_time);
+                vertices[index].vel = vel;
             }
+
         ",
     }
 }
