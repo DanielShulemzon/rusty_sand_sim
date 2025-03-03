@@ -6,11 +6,12 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         CopyBufferInfo,
     },
-    device::{DeviceOwned, Queue},
-    memory::allocator::{
-        AllocationCreateInfo, FreeListAllocator, GenericMemoryAllocator, MemoryTypeFilter,
-        StandardMemoryAllocator,
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
     },
+    device::{DeviceOwned, Queue},
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    pipeline::{ComputePipeline, Pipeline},
     sync::GpuFuture,
     DeviceSize,
 };
@@ -19,21 +20,26 @@ use super::MyVertex;
 
 const START_CAPACITY: u32 = 1024;
 
-pub struct DynVertexBuffer {
+pub struct DynMemoryManager {
     pub(crate) device_local_buffer: Subbuffer<[MyVertex]>,
+    pub(crate) descriptor_set: Arc<DescriptorSet>,
     size: u32,
     capacity: u32,
     memory_allocator: Arc<StandardMemoryAllocator>,
+    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
     queue: Arc<Queue>,
+    compute_pipeline: Arc<ComputePipeline>,
 }
 
-impl DynVertexBuffer {
+impl DynMemoryManager {
     // starts with 0 pixels, and a capacity of 1024.
     pub fn new(
-        memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
-        queue: Arc<Queue>,
+        memory_allocator: Arc<StandardMemoryAllocator>,
+        descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
         command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+        queue: Arc<Queue>,
+        compute_pipeline: Arc<ComputePipeline>,
     ) -> Self {
         let device_local_buffer = Buffer::new_slice::<MyVertex>(
             memory_allocator.clone(),
@@ -54,22 +60,34 @@ impl DynVertexBuffer {
         )
         .unwrap();
 
+        // initialize descriptor_set
+        let descriptor_set = DescriptorSet::new(
+            descriptor_set_allocator.clone(),
+            // 0 is the index of the descriptor set.
+            compute_pipeline.layout().set_layouts()[0].clone(),
+            [
+                // 0 is the binding of the data in this set. We bind the `Buffer` of vertices here.
+                WriteDescriptorSet::buffer(0, device_local_buffer.clone()),
+            ],
+            [],
+        )
+        .unwrap();
+
         Self {
             device_local_buffer,
+            descriptor_set,
             size: 0,
             capacity: START_CAPACITY,
             memory_allocator: memory_allocator.clone(),
+            descriptor_set_allocator: descriptor_set_allocator.clone(),
             command_buffer_allocator: command_buffer_allocator.clone(),
             queue: queue.clone(),
+            compute_pipeline: compute_pipeline.clone(),
         }
     }
 
     pub fn size(&self) -> u32 {
         self.size
-    }
-
-    pub fn get_buffer_clone(&self) -> Subbuffer<[MyVertex]> {
-        self.device_local_buffer.clone()
     }
 
     pub fn add_pixels(&mut self, num_pixels: u32) {
@@ -133,6 +151,7 @@ impl DynVertexBuffer {
     }
 
     fn recreate_buffer(&mut self, new_capacity: u32) {
+        println!("changing??? new capacity is: {}", new_capacity);
         let new_buffer = Buffer::new_slice::<MyVertex>(
             self.memory_allocator.clone(),
             BufferCreateInfo {
@@ -175,6 +194,25 @@ impl DynVertexBuffer {
             .unwrap();
 
         future.wait(None).unwrap();
+
+        // now recreate descriptor_set
+        let new_descriptor_set = DescriptorSet::new(
+            self.descriptor_set_allocator.clone(),
+            // 0 is the index of the descriptor set.
+            self.compute_pipeline.layout().set_layouts()[0].clone(),
+            [
+                // 0 is the binding of the data in this set. We bind the `Buffer` of vertices here.
+                WriteDescriptorSet::buffer(0, new_buffer.clone()),
+            ],
+            [],
+        )
+        .unwrap();
+        println!(
+            "descriptor_set changed to a mindboggling size of: {}",
+            self.device_local_buffer.len()
+        );
+
+        self.descriptor_set = new_descriptor_set;
 
         self.device_local_buffer = new_buffer;
         self.capacity = new_capacity;

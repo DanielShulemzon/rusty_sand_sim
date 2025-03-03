@@ -4,9 +4,7 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderPassBeginInfo,
     },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorSet, WriteDescriptorSet,
-    },
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
         Queue, QueueCreateInfo, QueueFlags,
@@ -48,7 +46,7 @@ use winit::{
 
 use super::{
     shaders::{cs, fs, vs},
-    DynVertexBuffer, MyVertex, RenderContext,
+    DynMemoryManager, MyVertex, RenderContext,
 };
 
 // const PARTICLE_COUNT: usize = 819_200;
@@ -59,10 +57,8 @@ pub struct App {
     queue: Arc<Queue>,
     memory_allocator: Arc<StandardMemoryAllocator>,
     command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
-    vertex_buffer: DynVertexBuffer,
+    vertex_memory_mng: DynMemoryManager,
     compute_pipeline: Arc<ComputePipeline>,
-    descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
-    descriptor_set: Arc<DescriptorSet>,
     rcx: Option<RenderContext>,
 }
 
@@ -139,13 +135,6 @@ impl App {
             Default::default(),
         ));
 
-        // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
-        let vertex_buffer = DynVertexBuffer::new(
-            memory_allocator.clone(),
-            queue.clone(),
-            command_buffer_allocator.clone(),
-        );
-
         // Create a compute-pipeline for applying the compute shader to vertices.
         let compute_pipeline = {
             let cs = cs::load(device.clone())
@@ -169,18 +158,14 @@ impl App {
             .unwrap()
         };
 
-        // Create a new descriptor set for binding vertices as a storage buffer.
-        let descriptor_set = DescriptorSet::new(
+        // Apply scoped logic to create `DeviceLocalBuffer` initialized with vertex data.
+        let vertex_memory_mng = DynMemoryManager::new(
+            memory_allocator.clone(),
             descriptor_set_allocator.clone(),
-            // 0 is the index of the descriptor set.
-            compute_pipeline.layout().set_layouts()[0].clone(),
-            [
-                // 0 is the binding of the data in this set. We bind the `Buffer` of vertices here.
-                WriteDescriptorSet::buffer(0, vertex_buffer.get_buffer_clone()),
-            ],
-            [],
-        )
-        .unwrap();
+            command_buffer_allocator.clone(),
+            queue.clone(),
+            compute_pipeline.clone(),
+        );
 
         App {
             instance,
@@ -188,10 +173,8 @@ impl App {
             queue,
             memory_allocator,
             command_buffer_allocator,
-            descriptor_set_allocator,
-            vertex_buffer,
+            vertex_memory_mng,
             compute_pipeline,
-            descriptor_set,
             rcx: None,
         }
     }
@@ -322,22 +305,11 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.vertex_buffer.add_pixels(1);
-                println!("current amont is obviously: {}", self.vertex_buffer.size());
-
-                let descriptor_set = DescriptorSet::new(
-                    self.descriptor_set_allocator.clone(),
-                    // 0 is the index of the descriptor set.
-                    self.compute_pipeline.layout().set_layouts()[0].clone(),
-                    [
-                        // 0 is the binding of the data in this set. We bind the `Buffer` of vertices here.
-                        WriteDescriptorSet::buffer(0, self.vertex_buffer.get_buffer_clone()),
-                    ],
-                    [],
-                )
-                .unwrap();
-
-                self.descriptor_set = descriptor_set;
+                self.vertex_memory_mng.add_pixels(1);
+                println!(
+                    "current amont is obviously: {}",
+                    self.vertex_memory_mng.size()
+                );
             }
             WindowEvent::RedrawRequested => {
                 let window_size = rcx.window.inner_size();
@@ -378,6 +350,9 @@ impl ApplicationHandler for App {
                     .as_secs_f32();
                 rcx.last_frame_time = now;
 
+                self.vertex_memory_mng.add_pixels(1);
+                println!("what? {}", self.vertex_memory_mng.size());
+
                 // Create push constants to be passed to compute shader.
                 let push_constants = cs::PushConstants {
                     attractor: rcx.cursor_pos.into(),
@@ -404,7 +379,7 @@ impl ApplicationHandler for App {
                     rcx.recreate_swapchain = true;
                 }
 
-                let num_workgroups_x = (self.vertex_buffer.size() + 1023) / 1024;
+                let num_workgroups_x = (self.vertex_memory_mng.size() + 1023) / 1024;
 
                 let mut builder = AutoCommandBufferBuilder::primary(
                     self.command_buffer_allocator.clone(),
@@ -424,7 +399,7 @@ impl ApplicationHandler for App {
                         PipelineBindPoint::Compute,
                         self.compute_pipeline.layout().clone(),
                         0, // Bind this descriptor set to index 0.
-                        self.descriptor_set.clone(),
+                        self.vertex_memory_mng.descriptor_set.clone(),
                     )
                     .unwrap();
                 unsafe { builder.dispatch([num_workgroups_x.max(1), 1, 1]) }.unwrap();
@@ -443,10 +418,10 @@ impl ApplicationHandler for App {
                     .unwrap()
                     .bind_pipeline_graphics(rcx.pipeline.clone())
                     .unwrap()
-                    .bind_vertex_buffers(0, self.vertex_buffer.get_buffer_clone())
+                    .bind_vertex_buffers(0, self.vertex_memory_mng.device_local_buffer.clone())
                     .unwrap();
 
-                unsafe { builder.draw(self.vertex_buffer.size(), 1, 0, 0) }.unwrap();
+                unsafe { builder.draw(self.vertex_memory_mng.size(), 1, 0, 0) }.unwrap();
 
                 builder.end_render_pass(Default::default()).unwrap();
 
