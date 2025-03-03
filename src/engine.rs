@@ -1,13 +1,13 @@
 pub mod app;
 pub(crate) mod memory;
-pub(crate) mod renderer;
+pub(crate) mod render_context;
 pub(crate) mod shaders;
 
 use std::collections::HashSet;
 
 pub use app::App;
 pub(crate) use memory::DynMemoryManager;
-pub(crate) use renderer::RenderContext;
+pub(crate) use render_context::RenderContext;
 
 use vulkano::{buffer::BufferContents, pipeline::graphics::vertex_input::Vertex};
 use winit::event::{ElementState, MouseButton, WindowEvent};
