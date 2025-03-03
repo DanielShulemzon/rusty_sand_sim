@@ -336,7 +336,7 @@ impl ApplicationHandler for App {
 
                 // Update per-frame variables.
                 let now = SystemTime::now();
-                let time = now.duration_since(rcx.start_time).unwrap().as_secs_f32();
+                let _time = now.duration_since(rcx.start_time).unwrap().as_secs_f32();
                 let delta_time = now
                     .duration_since(rcx.last_frame_time)
                     .unwrap()

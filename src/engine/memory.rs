@@ -210,7 +210,7 @@ impl DynMemoryManager {
         .unwrap();
         println!(
             "descriptor_set changed to a mindboggling size of: {}",
-            self.device_local_buffer.len()
+            new_buffer.len()
         );
 
         self.descriptor_set = new_descriptor_set;
